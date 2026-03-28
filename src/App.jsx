@@ -39,6 +39,12 @@ const App = () => {
   const [notification, setNotification] = useState(null);
   const [analysisRange, setAnalysisRange] = useState('all');
   const [showExportModal, setShowExportModal] = useState(false);
+  const [calorieHistory, setCalorieHistory] = useState([]);
+  const [todayCalories, setTodayCalories] = useState(0);
+  const [mealInput, setMealInput] = useState({ name: '', calories: '' });
+  const [metricsHistory, setMetricsHistory] = useState([]);
+  const [currentMetrics, setCurrentMetrics] = useState({ chest: '', waist: '', hips: '', arms: '', thighs: '' });
+  const [selectedDay, setSelectedDay] = useState('push');
 
   useEffect(() => {
     const savedSettings = localStorage.getItem(SETTINGS_ID);
@@ -47,6 +53,12 @@ const App = () => {
     } else {
       setShowOnboarding(true);
     }
+
+    const savedCalories = localStorage.getItem('health-tracker-calories');
+    if (savedCalories) setCalorieHistory(JSON.parse(savedCalories));
+
+    const savedMetrics = localStorage.getItem('health-tracker-metrics');
+    if (savedMetrics) setMetricsHistory(JSON.parse(savedMetrics));
 
     const saved = localStorage.getItem(APP_ID);
     if (saved) {
@@ -143,6 +155,73 @@ const App = () => {
   }, [currentWeight, settings]);
 
   const remainingKg = Math.abs(currentWeight - settings.targetWeight).toFixed(1);
+
+  // Calorie Calculations
+  const calorieMetrics = useMemo(() => {
+    // Mifflin-St Jeor Equation for BMR (assuming male, age 30)
+    const age = 30;
+    const bmr = (10 * currentWeight) + (6.25 * settings.height) - (5 * age) + 5;
+    
+    // TDEE (Total Daily Energy Expenditure) - assuming moderate activity
+    const tdee = bmr * 1.55;
+    
+    // Target weight BMR and TDEE
+    const targetBmr = (10 * settings.targetWeight) + (6.25 * settings.height) - (5 * age) + 5;
+    const targetTdee = targetBmr * 1.55;
+    
+    // Calorie deficit needed (500 cal/day = ~0.5kg/week)
+    const weeklyGoal = (currentWeight - settings.targetWeight) / settings.totalWeeks;
+    const dailyDeficit = weeklyGoal * 7700 / 7; // 7700 cal = 1kg
+    const targetCalories = tdee - dailyDeficit;
+    
+    return {
+      bmr: Math.round(bmr),
+      tdee: Math.round(tdee),
+      maintenance: Math.round(tdee),
+      targetCalories: Math.round(targetCalories),
+      deficit: Math.round(dailyDeficit),
+      targetMaintenance: Math.round(targetTdee)
+    };
+  }, [currentWeight, settings]);
+
+  const handleAddMeal = () => {
+    if (!mealInput.name || !mealInput.calories) {
+      showNotification('Please enter meal name and calories', 'error');
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    const newMeal = {
+      date: today,
+      name: mealInput.name,
+      calories: parseInt(mealInput.calories),
+      time: new Date().toLocaleTimeString()
+    };
+    const updated = [...calorieHistory, newMeal];
+    setCalorieHistory(updated);
+    localStorage.setItem('health-tracker-calories', JSON.stringify(updated));
+    setMealInput({ name: '', calories: '' });
+    showNotification('Meal logged!', 'success');
+  };
+
+  const handleAddMetrics = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const newMetrics = {
+      date: today,
+      ...currentMetrics
+    };
+    const updated = [...metricsHistory, newMetrics];
+    setMetricsHistory(updated);
+    localStorage.setItem('health-tracker-metrics', JSON.stringify(updated));
+    setCurrentMetrics({ chest: '', waist: '', hips: '', arms: '', thighs: '' });
+    showNotification('Metrics saved!', 'success');
+  };
+
+  const todayCalorieTotal = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return calorieHistory
+      .filter(meal => meal.date === today)
+      .reduce((sum, meal) => sum + meal.calories, 0);
+  }, [calorieHistory]);
 
   const comparisonData = useMemo(() => {
     if (history.length === 0) return [];
@@ -407,6 +486,24 @@ const App = () => {
                 className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
               >
                 <BarChart3 size={16} /> Analysis
+              </button>
+              <button 
+                onClick={() => setActiveTab('nutrition')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'nutrition' ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Utensils size={16} /> Nutrition
+              </button>
+              <button 
+                onClick={() => setActiveTab('metrics')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'metrics' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Activity size={16} /> Metrics
+              </button>
+              <button 
+                onClick={() => setActiveTab('exercise')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'exercise' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Dumbbell size={16} /> Exercise
               </button>
             </div>
             <button onClick={() => setShowExportModal(true)} className="p-2.5 rounded-xl bg-slate-800/50 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all">
@@ -904,6 +1001,434 @@ const App = () => {
             </div>
           </div>
         )}
+
+        {activeTab === 'nutrition' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-4xl font-black text-white mb-2 bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">Nutrition Tracker</h1>
+                <p className="text-slate-400 font-bold">Track your calorie intake and manage your diet</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-6 shadow-xl border border-orange-400/50">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
+                    <Flame className="text-white" size={24} />
+                  </div>
+                  <div className="text-right">
+                    <p className="text-orange-100 text-xs font-black uppercase tracking-wider">BMR</p>
+                    <p className="text-white text-3xl font-black">{calorieMetrics.bmr}</p>
+                  </div>
+                </div>
+                <p className="text-orange-100 text-xs font-bold">Basal Metabolic Rate - calories burned at rest</p>
+              </div>
+
+              <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-3xl p-6 shadow-xl border border-red-400/50">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
+                    <Activity className="text-white" size={24} />
+                  </div>
+                  <div className="text-right">
+                    <p className="text-red-100 text-xs font-black uppercase tracking-wider">TDEE</p>
+                    <p className="text-white text-3xl font-black">{calorieMetrics.tdee}</p>
+                  </div>
+                </div>
+                <p className="text-red-100 text-xs font-bold">Total Daily Energy Expenditure (moderate activity)</p>
+              </div>
+
+              <div className="bg-gradient-to-br from-pink-500 to-pink-600 rounded-3xl p-6 shadow-xl border border-pink-400/50">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="bg-white/20 backdrop-blur-sm p-3 rounded-xl">
+                    <Target className="text-white" size={24} />
+                  </div>
+                  <div className="text-right">
+                    <p className="text-pink-100 text-xs font-black uppercase tracking-wider">Daily Deficit</p>
+                    <p className="text-white text-3xl font-black">{calorieMetrics.deficit}</p>
+                  </div>
+                </div>
+                <p className="text-pink-100 text-xs font-bold">Calorie deficit needed per day</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2.5rem] p-8 border border-orange-500/20 shadow-xl">
+                <h3 className="text-2xl font-black text-white mb-6">Calorie Goals</h3>
+                <div className="space-y-6">
+                  <div className="bg-slate-700/50 rounded-2xl p-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-slate-300 font-bold">Maintenance (Current Weight)</span>
+                      <span className="text-2xl font-black text-blue-400">{calorieMetrics.maintenance} cal</span>
+                    </div>
+                    <p className="text-slate-400 text-sm">Calories to maintain {currentWeight}kg</p>
+                  </div>
+
+                  <div className="bg-gradient-to-r from-emerald-600/20 to-emerald-500/20 border border-emerald-500/30 rounded-2xl p-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-emerald-300 font-bold">Target Intake</span>
+                      <span className="text-2xl font-black text-emerald-400">{calorieMetrics.targetCalories} cal</span>
+                    </div>
+                    <p className="text-emerald-300 text-sm">Daily calories to reach {settings.targetWeight}kg in {settings.totalWeeks} weeks</p>
+                  </div>
+
+                  <div className="bg-slate-700/50 rounded-2xl p-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-slate-300 font-bold">Target Maintenance</span>
+                      <span className="text-2xl font-black text-purple-400">{calorieMetrics.targetMaintenance} cal</span>
+                    </div>
+                    <p className="text-slate-400 text-sm">Calories to maintain {settings.targetWeight}kg (goal weight)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2.5rem] p-8 border border-orange-500/20 shadow-xl">
+                <h3 className="text-2xl font-black text-white mb-6">Today's Intake</h3>
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-slate-300 font-bold">Consumed</span>
+                    <span className="text-3xl font-black text-orange-400">{todayCalorieTotal} cal</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-4">
+                    <div 
+                      className={`h-4 rounded-full transition-all duration-500 ${
+                        todayCalorieTotal > calorieMetrics.targetCalories ? 'bg-gradient-to-r from-rose-500 to-red-500' : 'bg-gradient-to-r from-emerald-500 to-green-500'
+                      }`}
+                      style={{ width: `${Math.min((todayCalorieTotal / calorieMetrics.targetCalories) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-xs text-slate-400">Target: {calorieMetrics.targetCalories} cal</span>
+                    <span className={`text-xs font-bold ${
+                      todayCalorieTotal > calorieMetrics.targetCalories ? 'text-rose-400' : 'text-emerald-400'
+                    }`}>
+                      {todayCalorieTotal > calorieMetrics.targetCalories ? '+' : ''}{todayCalorieTotal - calorieMetrics.targetCalories} cal
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Meal name (e.g., Breakfast)"
+                    value={mealInput.name}
+                    onChange={(e) => setMealInput({ ...mealInput, name: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-orange-500"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Calories"
+                    value={mealInput.calories}
+                    onChange={(e) => setMealInput({ ...mealInput, calories: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-orange-500"
+                  />
+                  <button
+                    onClick={handleAddMeal}
+                    className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-xl font-black hover:from-orange-600 hover:to-red-600 transition-all shadow-lg"
+                  >
+                    <Plus className="inline mr-2" size={20} /> Log Meal
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-2 max-h-64 overflow-y-auto">
+                  {calorieHistory.filter(m => m.date === new Date().toISOString().split('T')[0]).map((meal, idx) => (
+                    <div key={idx} className="bg-slate-700/50 rounded-xl p-3 flex justify-between items-center">
+                      <div>
+                        <p className="text-white font-bold">{meal.name}</p>
+                        <p className="text-slate-400 text-xs">{meal.time}</p>
+                      </div>
+                      <span className="text-orange-400 font-black">{meal.calories} cal</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'metrics' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-4xl font-black text-white mb-2 bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">Body Metrics</h1>
+                <p className="text-slate-400 font-bold">Track your body measurements and progress</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2.5rem] p-8 border border-emerald-500/20 shadow-xl">
+                <h3 className="text-2xl font-black text-white mb-6">Log Measurements</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-slate-300 text-sm font-bold mb-2 block">Chest (cm)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g., 100"
+                      value={currentMetrics.chest}
+                      onChange={(e) => setCurrentMetrics({ ...currentMetrics, chest: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-300 text-sm font-bold mb-2 block">Waist (cm)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g., 90"
+                      value={currentMetrics.waist}
+                      onChange={(e) => setCurrentMetrics({ ...currentMetrics, waist: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-300 text-sm font-bold mb-2 block">Hips (cm)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g., 95"
+                      value={currentMetrics.hips}
+                      onChange={(e) => setCurrentMetrics({ ...currentMetrics, hips: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-300 text-sm font-bold mb-2 block">Arms (cm)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g., 35"
+                      value={currentMetrics.arms}
+                      onChange={(e) => setCurrentMetrics({ ...currentMetrics, arms: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-300 text-sm font-bold mb-2 block">Thighs (cm)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g., 55"
+                      value={currentMetrics.thighs}
+                      onChange={(e) => setCurrentMetrics({ ...currentMetrics, thighs: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddMetrics}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-6 py-3 rounded-xl font-black hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg"
+                  >
+                    <Plus className="inline mr-2" size={20} /> Save Measurements
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/40 backdrop-blur-xl rounded-[2.5rem] p-8 border border-emerald-500/20 shadow-xl">
+                <h3 className="text-2xl font-black text-white mb-6">Measurement History</h3>
+                {metricsHistory.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Activity className="mx-auto text-slate-600 mb-4" size={48} />
+                    <p className="text-slate-400 font-bold">No measurements logged yet</p>
+                    <p className="text-slate-500 text-sm mt-2">Start tracking your body measurements</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {metricsHistory.slice().reverse().map((metric, idx) => (
+                      <div key={idx} className="bg-slate-700/50 rounded-2xl p-4">
+                        <p className="text-slate-300 text-sm font-bold mb-3">{metric.date}</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {metric.chest && <div><span className="text-slate-400 text-xs">Chest:</span> <span className="text-white font-bold">{metric.chest}cm</span></div>}
+                          {metric.waist && <div><span className="text-slate-400 text-xs">Waist:</span> <span className="text-white font-bold">{metric.waist}cm</span></div>}
+                          {metric.hips && <div><span className="text-slate-400 text-xs">Hips:</span> <span className="text-white font-bold">{metric.hips}cm</span></div>}
+                          {metric.arms && <div><span className="text-slate-400 text-xs">Arms:</span> <span className="text-white font-bold">{metric.arms}cm</span></div>}
+                          {metric.thighs && <div><span className="text-slate-400 text-xs">Thighs:</span> <span className="text-white font-bold">{metric.thighs}cm</span></div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'exercise' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-4xl font-black text-white mb-2 bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">Exercise Routine</h1>
+                <p className="text-slate-400 font-bold">Push / Pull / Legs split for optimal muscle growth</p>
+              </div>
+            </div>
+
+            <div className="flex gap-4 mb-8">
+              <button
+                onClick={() => setSelectedDay('push')}
+                className={`px-6 py-3 rounded-xl font-black transition-all ${
+                  selectedDay === 'push' ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white shadow-lg' : 'bg-slate-800/50 text-slate-400 hover:text-white'
+                }`}
+              >
+                🔥 Push Day
+              </button>
+              <button
+                onClick={() => setSelectedDay('pull')}
+                className={`px-6 py-3 rounded-xl font-black transition-all ${
+                  selectedDay === 'pull' ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg' : 'bg-slate-800/50 text-slate-400 hover:text-white'
+                }`}
+              >
+                💪 Pull Day
+              </button>
+              <button
+                onClick={() => setSelectedDay('legs')}
+                className={`px-6 py-3 rounded-xl font-black transition-all ${
+                  selectedDay === 'legs' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' : 'bg-slate-800/50 text-slate-400 hover:text-white'
+                }`}
+              >
+                🦵 Leg Day
+              </button>
+            </div>
+
+            {selectedDay === 'push' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ExerciseCard 
+                  title="Bench Press"
+                  sets="4 sets x 8-10 reps"
+                  description="Primary chest exercise. Lie on bench, lower bar to chest, press up explosively."
+                  tips={['Keep shoulder blades retracted', 'Touch chest lightly', 'Full range of motion']}
+                />
+                <ExerciseCard 
+                  title="Overhead Press"
+                  sets="3 sets x 8-10 reps"
+                  description="Main shoulder builder. Press barbell overhead from shoulder height."
+                  tips={['Brace core tight', 'Press slightly back', 'Lock out at top']}
+                />
+                <ExerciseCard 
+                  title="Incline Dumbbell Press"
+                  sets="3 sets x 10-12 reps"
+                  description="Upper chest focus. 30-45 degree incline, press dumbbells up."
+                  tips={['Control the descent', 'Full stretch at bottom', 'Squeeze at top']}
+                />
+                <ExerciseCard 
+                  title="Lateral Raises"
+                  sets="3 sets x 12-15 reps"
+                  description="Side delts. Raise dumbbells to shoulder height laterally."
+                  tips={['Slight bend in elbows', 'Lead with elbows', 'Control the weight']}
+                />
+                <ExerciseCard 
+                  title="Tricep Dips"
+                  sets="3 sets x 10-12 reps"
+                  description="Tricep mass builder. Lower body between parallel bars, push up."
+                  tips={['Lean forward slightly', 'Full range of motion', 'Add weight when ready']}
+                />
+                <ExerciseCard 
+                  title="Tricep Pushdowns"
+                  sets="3 sets x 12-15 reps"
+                  description="Tricep isolation. Push cable attachment down, squeeze at bottom."
+                  tips={['Keep elbows pinned', 'Full extension', 'Slow negative']}
+                />
+              </div>
+            )}
+
+            {selectedDay === 'pull' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ExerciseCard 
+                  title="Deadlifts"
+                  sets="4 sets x 6-8 reps"
+                  description="King of back exercises. Lift barbell from floor to hip level."
+                  tips={['Neutral spine', 'Drive through heels', 'Engage lats']}
+                />
+                <ExerciseCard 
+                  title="Pull-ups"
+                  sets="4 sets x 8-10 reps"
+                  description="Best lat builder. Pull body up until chin over bar."
+                  tips={['Full hang at bottom', 'Pull elbows down', 'Chest to bar']}
+                />
+                <ExerciseCard 
+                  title="Barbell Rows"
+                  sets="3 sets x 8-10 reps"
+                  description="Thick back builder. Row barbell to lower chest while bent over."
+                  tips={['Hinge at hips', 'Pull to belly button', 'Squeeze shoulder blades']}
+                />
+                <ExerciseCard 
+                  title="Face Pulls"
+                  sets="3 sets x 15-20 reps"
+                  description="Rear delts and upper back. Pull rope to face level."
+                  tips={['High rep range', 'Pull apart at face', 'External rotation']}
+                />
+                <ExerciseCard 
+                  title="Bicep Curls"
+                  sets="3 sets x 10-12 reps"
+                  description="Bicep mass. Curl dumbbells or barbell to shoulder level."
+                  tips={['No swinging', 'Full supination', 'Squeeze at top']}
+                />
+                <ExerciseCard 
+                  title="Hammer Curls"
+                  sets="3 sets x 12-15 reps"
+                  description="Brachialis focus. Curl with neutral grip."
+                  tips={['Thumbs up position', 'Slow and controlled', 'Alternate or together']}
+                />
+              </div>
+            )}
+
+            {selectedDay === 'legs' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ExerciseCard 
+                  title="Squats"
+                  sets="4 sets x 8-10 reps"
+                  description="King of leg exercises. Squat down until thighs parallel, drive up."
+                  tips={['Depth is key', 'Knees track toes', 'Chest up']}
+                />
+                <ExerciseCard 
+                  title="Romanian Deadlifts"
+                  sets="3 sets x 10-12 reps"
+                  description="Hamstring focus. Lower bar down legs with slight knee bend."
+                  tips={['Feel hamstring stretch', 'Hinge at hips', 'Neutral spine']}
+                />
+                <ExerciseCard 
+                  title="Leg Press"
+                  sets="3 sets x 12-15 reps"
+                  description="Quad mass builder. Press platform away with feet shoulder-width."
+                  tips={['Full range of motion', 'Dont lock knees', 'Control the weight']}
+                />
+                <ExerciseCard 
+                  title="Leg Curls"
+                  sets="3 sets x 12-15 reps"
+                  description="Hamstring isolation. Curl weight up by bending knees."
+                  tips={['Squeeze at top', 'Slow negative', 'Full extension']}
+                />
+                <ExerciseCard 
+                  title="Calf Raises"
+                  sets="4 sets x 15-20 reps"
+                  description="Calf development. Raise up on toes, lower slowly."
+                  tips={['Full stretch at bottom', 'Pause at top', 'High reps']}
+                />
+                <ExerciseCard 
+                  title="Lunges"
+                  sets="3 sets x 10 reps each leg"
+                  description="Unilateral leg work. Step forward, lower back knee, push back."
+                  tips={['Long stride', 'Knee behind toes', 'Upright torso']}
+                />
+              </div>
+            )}
+
+            <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 rounded-3xl p-8">
+              <h3 className="text-2xl font-black text-white mb-4">💡 Training Tips</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-800/50 rounded-xl p-4">
+                  <p className="text-blue-400 font-black mb-2">Progressive Overload</p>
+                  <p className="text-slate-300 text-sm">Gradually increase weight, reps, or sets each week to continue making gains.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4">
+                  <p className="text-purple-400 font-black mb-2">Rest & Recovery</p>
+                  <p className="text-slate-300 text-sm">Allow 48-72 hours between training the same muscle groups. Sleep 7-9 hours.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4">
+                  <p className="text-emerald-400 font-black mb-2">Form Over Weight</p>
+                  <p className="text-slate-300 text-sm">Perfect form prevents injury and maximizes muscle activation. Start light.</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4">
+                  <p className="text-orange-400 font-black mb-2">Consistency is Key</p>
+                  <p className="text-slate-300 text-sm">Train 4-6 days per week. Missing workouts slows progress significantly.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
@@ -988,6 +1513,22 @@ const LegendItem = ({ color, label }) => (
   <div className="flex items-center gap-2">
     <div className={`w-3 h-3 rounded-full ${color}`} />
     <span className="text-sm font-bold text-slate-700 uppercase tracking-wide">{label}</span>
+  </div>
+);
+
+const ExerciseCard = ({ title, sets, description, tips }) => (
+  <div className="bg-slate-800/40 backdrop-blur-xl rounded-2xl p-6 border border-slate-700/50 hover:border-blue-500/50 transition-all">
+    <h4 className="text-xl font-black text-white mb-2">{title}</h4>
+    <p className="text-blue-400 font-bold text-sm mb-3">{sets}</p>
+    <p className="text-slate-300 text-sm mb-4">{description}</p>
+    <div className="space-y-1">
+      {tips.map((tip, idx) => (
+        <div key={idx} className="flex items-start gap-2">
+          <Check className="text-emerald-400 flex-shrink-0 mt-0.5" size={14} />
+          <p className="text-slate-400 text-xs">{tip}</p>
+        </div>
+      ))}
+    </div>
   </div>
 );
 
